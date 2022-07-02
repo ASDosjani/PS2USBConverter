@@ -3,11 +3,19 @@
  * @see https://gist.github.com/DorianRudolph/ca283dfdfd185bc812b7
  *
  */
+#pragma GCC optimize ("O3")
 
 #include <Keyboard.h>
 
+#include <U8g2lib.h>
+#include <Wire.h>
+#include <EEPROM.h>
+#include "bongo.h"
+///////////////////////////////////////////
+U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);  // Adafruit ESP8266/32u4/ARM Boards + FeatherWing OLED
+
 #define DATA_PIN  4 // Define DATA_PIN (PS/2 Data)
-#define CLOCK_PIN 3  // Define CLOCK_PIN (PS/2 Clock). This PIN must supporting interrupts.
+#define CLOCK_PIN 7 // Define CLOCK_PIN (PS/2 Clock). This PIN must supporting interrupts.
 
 #define BUFFER_SIZE 45
 
@@ -18,7 +26,11 @@ static volatile uint8_t sendBits, msg, bitCount, setBits;
 KeyReport report;
 uint8_t K[255], KE[255];
 uint8_t leds;
-bool isSendLeds;
+bool isSendLeds, trollmode=false,trollrandom=false;
+
+
+uint8_t idlecount=0,trollcounter=60,trollmaxcount=0,bongomode=0;
+unsigned long bongotimeout=0,trolltimeout=0;
 
 void setupKeymaps() {
   K[0x1C] = 4;
@@ -198,9 +210,25 @@ void setupPS2() {
 void setup() {
   setupKeymaps();
   setupPS2();
-
+  Serial.begin(115200);
+  
+  EEPROM.get(0,trollmode);
+  EEPROM.get(1,trollmaxcount);
+  trollcounter=trollmaxcount;
+  Serial.println(trollmode);
+  
+  u8g2.begin();
+  u8g2.setFont(u8g2_font_t0_12b_tf); // choose a suitable font
+  u8g2.setBitmapMode(1);
+  u8g2.clearBuffer();
+  u8g2.drawXBMP(0,0,32,32,cubes);
+  u8g2.drawStr(40,20,"Lanparty 2022");
+  u8g2.sendBuffer();
+  u8g2.setFont(u8g2_font_inb16_mn);
   Keyboard.begin();
   delay(1000);
+  bongotimeout=millis()+100;
+  trolltimeout=millis()+1000;
 }
 
 bool ext, brk;
@@ -257,6 +285,55 @@ void sendMessage(uint8_t m) {
 }
 
 void loop() {
+  if(Serial.available()>0)
+  {
+    String command=Serial.readStringUntil('\n');
+    if(command=="trollon"){
+      trollmode=true;
+      trollcounter=trollmaxcount;
+      EEPROM.put(0, true);
+      Serial.println("on");
+    }
+    else if(command=="trolloff")
+    {
+      trollmode=false;
+      EEPROM.put(0, false);
+      Serial.println("off");
+    }
+    else if(command.startsWith("trollmaxcount"))
+    {
+      trollmaxcount=command.substring(13).toInt();
+      EEPROM.put(1, trollmaxcount);
+      Serial.println(trollmaxcount);
+    }
+  }
+  trollcount();
+  if(millis()>bongotimeout){
+    if(bongomode==0)
+    {
+      u8g2.clearBuffer();
+      u8g2.drawXBMP(0,0,128,32,idle[idlecount]);
+      trollcount();
+      u8g2.sendBuffer();
+      bongotimeout=millis()+100;
+      idlecount++;
+      if(idlecount==5) idlecount=0;
+    }
+    else if(bongomode==1)
+    {
+      u8g2.clearBuffer();
+      u8g2.drawXBMP(0,0,128,32,prep);
+      trollcount();
+      u8g2.sendBuffer();
+      bongotimeout=millis()+700;
+      bongomode=0;
+    }
+    else
+    {
+      bongomode=1;
+      return;
+    }
+  }
   uint8_t k = getScancode(), k2;
   if (k) {
     if (skip) {
@@ -293,11 +370,25 @@ void loop() {
                 leds ^= 1;
               } else if (k2 == 57) {
                 leds ^= 4;
-              }
+    
+             }
               sendMessage(0xED);
             }
           } else {
             addToReport(k2);
+            
+            bongomode=bongomode==2?3:2;
+            bongotimeout=0;
+            u8g2.clearBuffer();
+            if(bongomode==2){
+              u8g2.drawXBMP(0,0,128,32,tap[0]);
+            }
+            else {
+              u8g2.drawXBMP(0,0,128,32,tap[1]);
+            }
+            bongotimeout=millis()+300;
+            trollcount();
+            u8g2.sendBuffer();
           }
           sendReport();
         }
@@ -305,6 +396,58 @@ void loop() {
         brk = false;
         ext = false;
       }
+    }
+  }
+}
+void trollcount()
+{
+  if(trollmode)
+  {
+    u8g2.setDrawColor(0);
+    u8g2.drawBox(0,10,30,16);
+    u8g2.setDrawColor(1);
+    u8g2.setCursor(0,24);
+    if(!trollrandom) {
+      u8g2.setFont(u8g2_font_inb16_mn);
+      u8g2.print(trollcounter);
+    }
+    else 
+    {
+    u8g2.setFont(u8g2_font_t0_12b_tf); // choose a suitable font
+    u8g2.setCursor(0,24);
+    u8g2.print("Troll ON");
+    }
+
+    if(millis()>trolltimeout)
+    {
+      trolltimeout=millis()+1000;
+      trollcounter--;
+      if(trollcounter==0)
+      {
+        if(trollrandom){
+        trollcounter=trollmaxcount;
+        trollrandom=false;
+        Serial.println("troll");
+        
+        int rnd1 = random(1,5);
+        int rnd2 = random(1,5);
+        char buttons[] = {'w','a','s','d',' '};
+        Keyboard.releaseAll();
+        Keyboard.press(buttons[rnd1]);
+        delay(1000);
+        Keyboard.releaseAll();
+        Keyboard.press(buttons[rnd2]);
+        delay(1000);
+        Keyboard.releaseAll();
+      }
+      else
+      {
+        trollrandom=true;
+        trollcounter=random(1,10);
+        Serial.println(trollcounter);
+      }
+    }
+      u8g2.sendBuffer();
     }
   }
 }
