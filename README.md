@@ -7,5 +7,5 @@ To upload the sketch with Arduino IDE you only need the .ino and .h file.
 
 This project based on [DorianRudolph's work](https://gist.github.com/DorianRudolph/ca283dfdfd185bc812b7) with some fixes.
 
-Tested on Arduino Pro Mini borad.
+Tested on Arduino Pro Mini board.
 ![](https://raw.githubusercontent.com/ASDosjani/PS2USBConverterBongo/master/IMG_20220712_194358.jpg)
